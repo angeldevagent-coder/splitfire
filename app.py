@@ -10,7 +10,6 @@ import hashlib
 import os
 from datetime import datetime
 from urllib.parse import urlparse
-import openai
 import requests
 import csv
 import io
@@ -20,7 +19,8 @@ import io
 # =============================================================================
 
 DATABASE = "splitfire.db"
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+# Use Groq for free AI (https://console.groq.com - free tier)
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 APPROVED_CODES = os.environ.get("APPROVED_CODES", "").split(",")
 
 # Dark theme colors
@@ -97,11 +97,9 @@ def init_db():
 # =============================================================================
 
 def generate_variations(title, description):
-    """Use OpenAI to generate headline and description variations."""
-    if not OPENAI_API_KEY:
-        return None, "OpenAI API key not configured"
-    
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    """Use Groq (free) to generate headline and description variations."""
+    if not GROQ_API_KEY:
+        return None, "Groq API key not configured. Add GROQ_API_KEY to Railway environment variables."
     
     prompt = f"""You are a conversion rate expert for digital products on Gumroad/Etsy.
 
@@ -130,13 +128,24 @@ DESCRIPTIONS:
 4. [description 4]"""
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1000,
-            temperature=0.8
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.1-8b-instant",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1000,
+                "temperature": 0.8
+            },
+            timeout=30
         )
-        return response.choices[0].message.content, None
+        if response.status_code != 200:
+            return None, f"Groq error: {response.status_code} - {response.text}"
+        data = response.json()
+        return data["choices"][0]["message"]["content"], None
     except Exception as e:
         return None, str(e)
 
