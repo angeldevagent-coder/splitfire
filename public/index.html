@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SplitFire — AI-Powered A/B Testing for Digital Products</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --bg-secondary: #111111;
+            --bg-card: #1a1a1a;
+            --accent: #00ff88;
+            --accent-dim: #00cc6a;
+            --text: #f0f0f0;
+            --text-muted: #888888;
+            --border: #2a2a2a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Header */
+        header {
+            padding: 24px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logo-icon {
+            font-size: 28px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 32px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            text-decoration: none;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background-color: var(--accent);
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--accent-dim);
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background-color: var(--bg-card);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Hero */
+        .hero {
+            padding: 100px 0;
+            text-align: center;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background-color: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 24px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .hero h1 {
+            font-size: 64px;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 24px;
+            letter-spacing: -2px;
+        }
+
+        .hero h1 .accent {
+            color: var(--accent);
+        }
+
+        .hero p {
+            font-size: 20px;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto 40px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+        }
+
+        .hero-image {
+            margin-top: 80px;
+            background: linear-gradient(180deg, var(--bg) 0%, var(--bg-secondary) 100%);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+        }
+
+        /* Features */
+        .features {
+            padding: 100px 0;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .section-header h2 {
+            font-size: 40px;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .section-header p {
+            color: var(--text-muted);
+            font-size: 18px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+
+        .feature-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            transition: all 0.2s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-4px);
+        }
+
+        .feature-icon {
+            font-size: 32px;
+            margin-bottom: 16px;
+        }
+
+        .feature-card h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* How it works */
+        .how-it-works {
+            padding: 100px 0;
+            background-color: var(--bg-secondary);
+        }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 32px;
+            position: relative;
+        }
+
+        .step {
+            text-align: center;
+            position: relative;
+        }
+
+        .step-number {
+            width: 48px;
+            height: 48px;
+            background-color: var(--accent);
+            color: #000;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+            margin: 0 auto 16px;
+        }
+
+        .step h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .step p {
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        /* Pricing */
+        .pricing {
+            padding: 100px 0;
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .pricing-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            position: relative;
+        }
+
+        .pricing-card.featured {
+            border-color: var(--accent);
+        }
+
+        .pricing-card.featured::before {
+            content: 'Most Popular';
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: var(--accent);
+            color: #000;
+            padding: 4px 16px;
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .pricing-header {
+            text-align: center;
+            margin-bottom: 24px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .pricing-header h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .pricing-header .price {
+            font-size: 40px;
+            font-weight: 800;
+        }
+
+        .pricing-header .price span {
+            font-size: 16px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .pricing-features {
+            list-style: none;
+            margin-bottom: 32px;
+        }
+
+        .pricing-features li {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+            font-size: 14px;
+        }
+
+        .pricing-features li::before {
+            content: '✓';
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .pricing-features li.disabled {
+            color: var(--text-muted);
+        }
+
+        .pricing-features li.disabled::before {
+            content: '×';
+            color: var(--text-muted);
+        }
+
+        .pricing-card .btn {
+            width: 100%;
+            justify-content: center;
+        }
+
+        /* CTA */
+        .cta {
+            padding: 100px 0;
+            background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg) 100%);
+            text-align: center;
+        }
+
+        .cta h2 {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .cta p {
+            color: var(--text-muted);
+            font-size: 18px;
+            margin-bottom: 32px;
+        }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 24px;
+            list-style: none;
+        }
+
+        .footer-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: color 0.2s;
+        }
+
+        .footer-links a:hover {
+            color: var(--accent);
+        }
+
+        .footer-copy {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 40px;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .steps {
+                grid-template-columns: 1fr;
+                gap: 40px;
+            }
+
+            .pricing-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .hero-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <nav>
+                <div class="logo">
+                    <span class="logo-icon">🔥</span>
+                    SplitFire
+                </div>
+                <ul class="nav-links">
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#how-it-works">How It Works</a></li>
+                    <li><a href="#pricing">Pricing</a></li>
+                </ul>
+                <a href="#pricing" class="btn btn-primary">Get Started</a>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <div class="hero-badge">
+                <span>🚀</span> For Gumroad, Etsy & Digital Product Sellers
+            </div>
+            <h1>Know Exactly What<br><span class="accent">Converts Better</span></h1>
+            <p>Stop guessing which headline or description works. SplitFire uses AI to generate variations and tracks which one actually gets clicks and sales.</p>
+            <div class="hero-buttons">
+                <a href="#pricing" class="btn btn-primary">Start Testing — Free</a>
+                <a href="#how-it-works" class="btn btn-secondary">See How It Works</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-header">
+                <h2>Everything You Need to Test Smarter</h2>
+                <p>From variation generation to winner declaration — all in one place</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>AI Variation Generator</h3>
+                    <p>Enter your product once. Get 4 headline + 4 description variations generated instantly with one click.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Click Tracking</h3>
+                    <p>Every click is tracked. See real-time data on which variation is pulling ahead.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🏆</div>
+                    <h3>Winner Declaration</h3>
+                    <p>Know when you have statistical significance. Don't guess — know.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📤</div>
+                    <h3>CSV Export</h3>
+                    <p>Download your test results. Import into spreadsheets, reports, or share with your team.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔗</div>
+                    <h3>UTM Link Builder</h3>
+                    <p>Auto-generate tracking links for each variation. Share them anywhere and track the source.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Private & Secure</h3>
+                    <p>Your product data stays yours. Self-hosted option available for complete control.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="how-it-works" class="how-it-works">
+        <div class="container">
+            <div class="section-header">
+                <h2>How SplitFire Works</h2>
+                <p>Four steps to know what actually converts</p>
+            </div>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Add Your Product</h3>
+                    <p>Enter your product title, description, and Gumroad URL</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Generate Variations</h3>
+                    <p>AI creates 4 headlines and 4 descriptions instantly</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Share Your Links</h3>
+                    <p>Pick your variations and share the tracking links</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <h3>See the Winner</h3>
+                    <p>Track clicks, declare winners, apply insights</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="pricing" class="pricing">
+        <div class="container">
+            <div class="section-header">
+                <h2>Simple, Transparent Pricing</h2>
+                <p>Start free. Upgrade when you're ready.</p>
+            </div>
+            <div class="pricing-grid">
+                <div class="pricing-card">
+                    <div class="pricing-header">
+                        <h3>Free</h3>
+                        <div class="price">$0<span>/month</span></div>
+                    </div>
+                    <ul class="pricing-features">
+                        <li>3 products</li>
+                        <li>Basic click tracking</li>
+                        <li>AI variation generation</li>
+                        <li>UTM link builder</li>
+                        <li class="disabled">CSV export</li>
+                        <li class="disabled">Email reports</li>
+                        <li class="disabled">Unlimited products</li>
+                    </ul>
+                    <a href="#" class="btn btn-secondary">Get Started Free</a>
+                </div>
+                <div class="pricing-card featured">
+                    <div class="pricing-header">
+                        <h3>Pro</h3>
+                        <div class="price">$9<span>/month</span></div>
+                    </div>
+                    <ul class="pricing-features">
+                        <li>Unlimited products</li>
+                        <li>Advanced click tracking</li>
+                        <li>AI variation generation</li>
+                        <li>UTM link builder</li>
+                        <li>CSV export</li>
+                        <li>Email reports</li>
+                        <li>Priority support</li>
+                    </ul>
+                    <a href="https://angelesdev.gumroad.com/l/splitfire" class="btn btn-primary">Get Pro Access</a>
+                </div>
+            </div>
+            <p style="text-align: center; margin-top: 24px; color: var(--text-muted); font-size: 14px;">
+                Lifetime access available — <a href="https://angelesdev.gumroad.com/l/splitfire" style="color: var(--accent);">see Gumroad listing</a> for one-time payment options.
+            </p>
+        </div>
+    </section>
+
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to Stop Guessing?</h2>
+            <p>Join digital product sellers who know exactly what converts.</p>
+            <a href="#pricing" class="btn btn-primary">Start Testing for Free</a>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="logo" style="font-size: 18px;">
+                    <span class="logo-icon">🔥</span>
+                    SplitFire
+                </div>
+                <ul class="footer-links">
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#pricing">Pricing</a></li>
+                    <li><a href="#">Terms</a></li>
+                    <li><a href="#">Privacy</a></li>
+                </ul>
+                <div class="footer-copy">
+                    © 2026 SplitFire. Built with 🔥
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
