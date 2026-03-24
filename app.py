@@ -262,7 +262,11 @@ def dashboard_page():
                         st.write(f"  - Test {tid[:8]}... | {status} | {started}")
                 else:
                     st.write("No tests yet")
-                if st.button("Delete", key=f"del_{pid}"):
+                cols = st.columns(2)
+                if cols[0].button("Open", key=f"open_{pid}"):
+                    st.session_state["current_product"] = pid
+                    st.rerun()
+                if cols[1].button("Delete", key=f"del_{pid}"):
                     c.execute("DELETE FROM products WHERE id = ?", (pid,))
                     conn.commit()
                     st.rerun()
