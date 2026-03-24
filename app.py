@@ -4,7 +4,8 @@ Run with: streamlit run app.py
 """
 
 import streamlit as st
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import uuid
 import hashlib
 import os
@@ -12,15 +13,15 @@ from datetime import datetime
 from urllib.parse import urlparse
 import requests
 import csv
+import urllib.parse
 import io
 
 # =============================================================================
 # CONFIG
 # =============================================================================
 
-DATABASE = "splitfire.db"
-# Use Groq for free AI (https://console.groq.com - free tier)
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+# Use PostgreSQL on Railway (DATABASE_URL env var set automatically)
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 APPROVED_CODES = os.environ.get("APPROVED_CODES", "").split(",")
 
 # Dark theme colors
@@ -35,59 +36,67 @@ MUTED = "#666666"
 # =============================================================================
 
 def get_db():
-    return sqlite3.connect(DATABASE)
+    if not DATABASE_URL:
+        return None
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 def init_db():
     conn = get_db()
+    if conn is None:
+        return None
     c = conn.cursor()
-    c.executescript("""
+    c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE,
             access_code TEXT,
             tier TEXT DEFAULT 'free',
             created_at TEXT
-        );
+        )
+    """)
+    c.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id TEXT PRIMARY KEY,
             user_id TEXT,
             title TEXT,
             description TEXT,
             gumroad_url TEXT,
-            created_at TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
+            created_at TEXT
+        )
+    """)
+    c.execute("""
         CREATE TABLE IF NOT EXISTS variations (
             id TEXT PRIMARY KEY,
             product_id TEXT,
             headline TEXT,
             description TEXT,
-            variant_type TEXT,
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        );
+            variant_type TEXT
+        )
+    """)
+    c.execute("""
         CREATE TABLE IF NOT EXISTS tests (
             id TEXT PRIMARY KEY,
             product_id TEXT,
             status TEXT DEFAULT 'active',
-            started_at TEXT,
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        );
+            started_at TEXT
+        )
+    """)
+    c.execute("""
         CREATE TABLE IF NOT EXISTS test_variations (
             id TEXT PRIMARY KEY,
             test_id TEXT,
             variation_id TEXT,
             tracking_link TEXT,
-            clicks INTEGER DEFAULT 0,
-            FOREIGN KEY (test_id) REFERENCES tests(id),
-            FOREIGN KEY (variation_id) REFERENCES variations(id)
-        );
+            clicks INTEGER DEFAULT 0
+        )
+    """)
+    c.execute("""
         CREATE TABLE IF NOT EXISTS clicks (
             id TEXT PRIMARY KEY,
             test_variation_id TEXT,
             clicked_at TEXT,
-            source TEXT,
-            FOREIGN KEY (test_variation_id) REFERENCES test_variations(id)
-        );
+            source TEXT
+        )
     """)
     conn.commit()
     return conn
