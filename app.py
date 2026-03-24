@@ -3,12 +3,11 @@ SplitFire — AI-Powered A/B Testing for Digital Products
 Run with: streamlit run app.py
 """
 
-import os
 import streamlit as st
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import sqlite3
 import uuid
 import hashlib
+import os
 from datetime import datetime
 import requests
 
@@ -16,10 +15,9 @@ import requests
 # CONFIG
 # =============================================================================
 
-# PostgreSQL on Railway (DATABASE_URL set automatically when you add PostgreSQL)
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+DATABASE = "splitfire.db"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-APPROVED_CODES = [c.strip() for c in os.environ.get("APPROVED_CODES", "").split(",") if c.strip()]
+APPROVED_CODES = os.environ.get("APPROVED_CODES", "").split(",")
 
 # Dark theme colors
 PRIMARY_BG = "#0f0f0f"
@@ -33,74 +31,62 @@ MUTED = "#666666"
 # =============================================================================
 
 def get_db():
-    if not DATABASE_URL:
-        return None
-    try:
-        return psycopg2.connect(DATABASE_URL, sslmode='require')
-    except Exception as e:
-        st.error(f"Database connection failed: {e}")
-        return None
+    return sqlite3.connect(DATABASE, check_same_thread=False)
 
 def init_db():
     conn = get_db()
-    if conn is None:
-        return None, None
-    cur = conn.cursor()
-    cur.execute("""
+    c = conn.cursor()
+    c.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE,
             access_code TEXT,
             tier TEXT DEFAULT 'free',
             created_at TEXT
-        )
-    """)
-    cur.execute("""
+        );
         CREATE TABLE IF NOT EXISTS products (
             id TEXT PRIMARY KEY,
             user_id TEXT,
             title TEXT,
             description TEXT,
             gumroad_url TEXT,
-            created_at TEXT
-        )
-    """)
-    cur.execute("""
+            created_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
         CREATE TABLE IF NOT EXISTS variations (
             id TEXT PRIMARY KEY,
             product_id TEXT,
             headline TEXT,
             description TEXT,
-            variant_type TEXT
-        )
-    """)
-    cur.execute("""
+            variant_type TEXT,
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        );
         CREATE TABLE IF NOT EXISTS tests (
             id TEXT PRIMARY KEY,
             product_id TEXT,
             status TEXT DEFAULT 'active',
-            started_at TEXT
-        )
-    """)
-    cur.execute("""
+            started_at TEXT,
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        );
         CREATE TABLE IF NOT EXISTS test_variations (
             id TEXT PRIMARY KEY,
             test_id TEXT,
             variation_id TEXT,
             tracking_link TEXT,
-            clicks INTEGER DEFAULT 0
-        )
-    """)
-    cur.execute("""
+            clicks INTEGER DEFAULT 0,
+            FOREIGN KEY (test_id) REFERENCES tests(id),
+            FOREIGN KEY (variation_id) REFERENCES variations(id)
+        );
         CREATE TABLE IF NOT EXISTS clicks (
             id TEXT PRIMARY KEY,
             test_variation_id TEXT,
             clicked_at TEXT,
-            source TEXT
-        )
+            source TEXT,
+            FOREIGN KEY (test_variation_id) REFERENCES test_variations(id)
+        );
     """)
     conn.commit()
-    return conn, cur
+    return conn
 
 # =============================================================================
 # AI VARIATION GENERATOR
@@ -202,9 +188,9 @@ def apply_dark_theme():
     """, unsafe_allow_html=True)
 
 def check_access(access_code):
-    if not APPROVED_CODES:
+    if not APPROVED_CODES or APPROVED_CODES == [""]:
         return True
-    return access_code in APPROVED_CODES
+    return access_code in [c.strip() for c in APPROVED_CODES if c.strip()]
 
 # =============================================================================
 # PAGES
@@ -213,7 +199,6 @@ def check_access(access_code):
 def login_page():
     st.set_page_config(page_title="SplitFire — Login", page_icon="🔥")
     apply_dark_theme()
-    
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("# 🔥 SplitFire")
@@ -233,7 +218,6 @@ def login_page():
 def dashboard_page():
     st.set_page_config(page_title="SplitFire — Dashboard", page_icon="🔥")
     apply_dark_theme()
-    
     user_id = st.session_state.get("user_id")
     cols = st.columns([3, 1])
     with cols[0]:
@@ -244,48 +228,42 @@ def dashboard_page():
                 del st.session_state[key]
             st.rerun()
     
-    result = init_db()
-    if result[0] is None:
-        st.error("Database not ready. Please refresh.")
-        return
-    conn, cur = result
+    conn = init_db()
+    c = conn.cursor()
     
-    cur.execute("SELECT COUNT(*) FROM products WHERE user_id = %s", (user_id,))
-    total_products = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM clicks")
-    total_clicks = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM tests")
-    total_tests = cur.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM products WHERE user_id = ?", (user_id,))
+    total_products = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM clicks")
+    total_clicks = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM tests")
+    total_tests = c.fetchone()[0]
     
     col1, col2, col3 = st.columns(3)
     col1.metric("Products", total_products)
     col2.metric("Total Clicks", total_clicks)
     col3.metric("Tests", total_tests)
-    
     st.divider()
     st.markdown("## Your Products")
     
-    cur.execute("SELECT id, title, gumroad_url, created_at FROM products WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
-    products = cur.fetchall()
-    
+    c.execute("SELECT id, title, gumroad_url, created_at FROM products WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+    products = c.fetchall()
     if not products:
-        st.info("No products yet. Add one below to get started!")
+        st.info("No products yet. Add one below!")
     else:
-        for row in products:
-            pid, title, url, created = row
+        for pid, title, url, created in products:
             with st.expander(f"📦 {title}"):
                 st.write(f"**URL:** {url}")
                 st.write(f"**Added:** {created}")
-                cur.execute("SELECT id, status, started_at FROM tests WHERE product_id = %s", (pid,))
-                tests = cur.fetchall()
+                c.execute("SELECT id, status, started_at FROM tests WHERE product_id = ?", (pid,))
+                tests = c.fetchall()
                 if tests:
                     st.write("**Tests:**")
                     for tid, status, started in tests:
-                        st.write(f"  - Test {tid[:8]}... | Status: {status} | Started: {started}")
+                        st.write(f"  - Test {tid[:8]}... | {status} | {started}")
                 else:
                     st.write("No tests yet")
                 if st.button("Delete", key=f"del_{pid}"):
-                    cur.execute("DELETE FROM products WHERE id = %s", (pid,))
+                    c.execute("DELETE FROM products WHERE id = ?", (pid,))
                     conn.commit()
                     st.rerun()
     
@@ -299,9 +277,9 @@ def dashboard_page():
         if submitted:
             if title and gumroad_url:
                 pid = str(uuid.uuid4())
-                cur.execute("""
+                c.execute("""
                     INSERT INTO products (id, user_id, title, description, gumroad_url, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """, (pid, user_id, title, description, gumroad_url, datetime.now().isoformat()))
                 conn.commit()
                 st.success("Product added!")
@@ -312,20 +290,14 @@ def dashboard_page():
 def product_page(product_id):
     st.set_page_config(page_title="SplitFire — Product", page_icon="🔥")
     apply_dark_theme()
-    
     if st.button("← Back to Dashboard"):
         del st.session_state["current_product"]
         st.rerun()
     
-    result = init_db()
-    if result[0] is None:
-        st.error("Database not ready.")
-        return
-    conn, cur = result
-    
-    cur.execute("SELECT title, description, gumroad_url FROM products WHERE id = %s", (product_id,))
-    product = cur.fetchone()
-    
+    conn = init_db()
+    c = conn.cursor()
+    c.execute("SELECT title, description, gumroad_url FROM products WHERE id = ?", (product_id,))
+    product = c.fetchone()
     if not product:
         st.error("Product not found")
         return
@@ -334,23 +306,22 @@ def product_page(product_id):
     st.markdown(f"## 📦 {title}")
     st.write(f"**URL:** {gumroad_url}")
     st.divider()
-    
     st.markdown("### Generate AI Variations")
     if "variations" not in st.session_state:
         st.session_state["variations"] = None
     
     if st.button("🎯 Generate with AI"):
         if not GROQ_API_KEY:
-            st.error("Groq API not configured on server")
+            st.error("Groq API not configured")
         else:
-            with st.spinner("Generating variations..."):
+            with st.spinner("Generating..."):
                 raw, err = generate_variations(title, description)
                 if err:
                     st.error(f"Error: {err}")
                 else:
                     headlines, descriptions = parse_variations(raw)
                     st.session_state["variations"] = {"headlines": headlines, "descriptions": descriptions}
-                    st.success("Variations generated!")
+                    st.success("Done!")
                     st.rerun()
     
     if st.session_state["variations"]:
@@ -366,55 +337,50 @@ def product_page(product_id):
                 st.write(f"{i}. {d}")
         st.divider()
         st.markdown("### Create A/B Test")
-        selected_headline = st.selectbox("Choose headline", ["None"] + data["headlines"])
-        selected_desc = st.selectbox("Choose description", ["None"] + data["descriptions"])
+        selected_headline = st.selectbox("Headline", ["None"] + data["headlines"])
+        selected_desc = st.selectbox("Description", ["None"] + data["descriptions"])
         if st.button("🚀 Create Test"):
             h_var_id = str(uuid.uuid4())
             d_var_id = str(uuid.uuid4())
-            cur.execute("INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (%s, %s, %s, %s, %s)",
-                       (h_var_id, product_id, selected_headline if selected_headline != "None" else "", "headline"))
-            cur.execute("INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (%s, %s, %s, %s, %s)",
-                       (d_var_id, product_id, selected_desc if selected_desc != "None" else "", selected_desc if selected_desc != "None" else "", "description"))
+            c.execute("INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (?, ?, ?, ?, ?)",
+                     (h_var_id, product_id, selected_headline if selected_headline != "None" else "", "headline"))
+            c.execute("INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (?, ?, ?, ?, ?)",
+                     (d_var_id, product_id, selected_desc if selected_desc != "None" else "", selected_desc if selected_desc != "None" else "", "description"))
             test_id = str(uuid.uuid4())
-            cur.execute("INSERT INTO tests (id, product_id, started_at) VALUES (%s, %s, %s)",
-                       (test_id, product_id, datetime.now().isoformat()))
-            base_url = gumroad_url
+            c.execute("INSERT INTO tests (id, product_id, started_at) VALUES (?, ?, ?)",
+                     (test_id, product_id, datetime.now().isoformat()))
             tv1_id = str(uuid.uuid4())
             tv2_id = str(uuid.uuid4())
-            link1 = f"{base_url}?utm_source=splitfire&utm_medium=a_b&utm_content={h_var_id[:8]}"
-            link2 = f"{base_url}?utm_source=splitfire&utm_medium=a_b&utm_content={d_var_id[:8]}"
-            cur.execute("INSERT INTO test_variations (id, test_id, variation_id, tracking_link) VALUES (%s, %s, %s, %s)",
-                       (tv1_id, test_id, h_var_id, link1))
-            cur.execute("INSERT INTO test_variations (id, test_id, variation_id, tracking_link) VALUES (%s, %s, %s, %s)",
-                       (tv2_id, test_id, d_var_id, link2))
+            link1 = f"{gumroad_url}?utm_source=splitfire&utm_content={h_var_id[:8]}"
+            link2 = f"{gumroad_url}?utm_source=splitfire&utm_content={d_var_id[:8]}"
+            c.execute("INSERT INTO test_variations (id, test_id, variation_id, tracking_link) VALUES (?, ?, ?, ?)",
+                     (tv1_id, test_id, h_var_id, link1))
+            c.execute("INSERT INTO test_variations (id, test_id, variation_id, tracking_link) VALUES (?, ?, ?, ?)",
+                     (tv2_id, test_id, d_var_id, link2))
             conn.commit()
             st.success("Test created!")
-            st.markdown("#### Share these links:")
             st.code(link1)
             st.code(link2)
             st.rerun()
     
     st.divider()
     st.markdown("### Tests")
-    cur.execute("SELECT id, status, started_at FROM tests WHERE product_id = %s", (product_id,))
-    tests = cur.fetchall()
+    c.execute("SELECT id, status, started_at FROM tests WHERE product_id = ?", (product_id,))
+    tests = c.fetchall()
     if not tests:
-        st.info("No tests yet. Generate variations above to create one.")
+        st.info("Generate variations above to create a test.")
     else:
         for tid, status, started in tests:
             with st.expander(f"Test {tid[:8]}... | {status}"):
-                cur.execute("""
+                c.execute("""
                     SELECT tv.id, v.headline, v.description, v.variant_type, tv.tracking_link, tv.clicks
-                    FROM test_variations tv
-                    JOIN variations v ON tv.variation_id = v.id
-                    WHERE tv.test_id = %s
+                    FROM test_variations tv JOIN variations v ON tv.variation_id = v.id
+                    WHERE tv.test_id = ?
                 """, (tid,))
-                variations = cur.fetchall()
-                for tvid, headline, desc, vtype, link, clicks in variations:
+                for tvid, headline, desc, vtype, link, clicks in c.fetchall():
                     st.write(f"**Type:** {vtype}")
                     if headline: st.write(f"**Headline:** {headline}")
                     if desc: st.write(f"**Description:** {desc}")
-                    st.write(f"**Link:** {link}")
                     st.write(f"**Clicks:** {clicks}")
                     st.divider()
 
