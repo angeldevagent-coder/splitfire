@@ -1,13 +1,13 @@
 """
 SplitFire — AI-Powered A/B Testing for Digital Products
-Run with: streamlit run app.py
 """
 
+import os
 import streamlit as st
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import uuid
 import hashlib
-import os
 from datetime import datetime
 import requests
 
@@ -15,11 +15,13 @@ import requests
 # CONFIG
 # =============================================================================
 
-DATABASE = "splitfire.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-APPROVED_CODES = os.environ.get("APPROVED_CODES", "").split(",")
+# Codes separated by commas, e.g. "code1,code2,code3"
+_raw_codes = os.environ.get("APPROVED_CODES", "")
+APPROVED_CODES = [c.strip() for c in _raw_codes.split(",") if c.strip()] if _raw_codes else []
 
-# Dark theme colors
+# Theme
 PRIMARY_BG = "#0f0f0f"
 SECONDARY_BG = "#1a1a1a"
 ACCENT = "#00ff88"
@@ -31,71 +33,78 @@ MUTED = "#666666"
 # =============================================================================
 
 def get_db():
-    return sqlite3.connect(DATABASE, check_same_thread=False)
+    if not DATABASE_URL:
+        return None
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 def init_db():
     conn = get_db()
-    c = conn.cursor()
-    c.executescript("""
+    if conn is None:
+        return None, None
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE,
             access_code TEXT,
             tier TEXT DEFAULT 'free',
             created_at TEXT
-        );
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id TEXT PRIMARY KEY,
             user_id TEXT,
             title TEXT,
             description TEXT,
             gumroad_url TEXT,
-            created_at TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
+            created_at TEXT
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS variations (
             id TEXT PRIMARY KEY,
             product_id TEXT,
             headline TEXT,
             description TEXT,
-            variant_type TEXT,
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        );
+            variant_type TEXT
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS tests (
             id TEXT PRIMARY KEY,
             product_id TEXT,
             status TEXT DEFAULT 'active',
-            started_at TEXT,
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        );
+            started_at TEXT
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS test_variations (
             id TEXT PRIMARY KEY,
             test_id TEXT,
             variation_id TEXT,
             tracking_link TEXT,
-            clicks INTEGER DEFAULT 0,
-            FOREIGN KEY (test_id) REFERENCES tests(id),
-            FOREIGN KEY (variation_id) REFERENCES variations(id)
-        );
+            clicks INTEGER DEFAULT 0
+        )
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS clicks (
             id TEXT PRIMARY KEY,
             test_variation_id TEXT,
             clicked_at TEXT,
-            source TEXT,
-            FOREIGN KEY (test_variation_id) REFERENCES test_variations(id)
-        );
+            source TEXT
+        )
     """)
     conn.commit()
-    return conn
+    return conn, cur
 
 # =============================================================================
 # AI VARIATION GENERATOR
 # =============================================================================
 
 def generate_variations(title, description):
-    """Use Groq (free) to generate headline and description variations."""
     if not GROQ_API_KEY:
-        return None, "Groq API key not configured. Add GROQ_API_KEY to Railway environment variables."
+        return None, "Groq API key not configured. Add GROQ_API_KEY to Railway env vars."
     
     prompt = f"""You are a conversion rate expert for digital products on Gumroad/Etsy.
 
@@ -139,14 +148,13 @@ DESCRIPTIONS:
             timeout=30
         )
         if response.status_code != 200:
-            return None, f"Groq error: {response.status_code}"
+            return None, f"Groq error: {response.status_code} - {response.text}"
         data = response.json()
         return data["choices"][0]["message"]["content"], None
     except Exception as e:
         return None, str(e)
 
 def parse_variations(text):
-    """Parse the AI response into structured data."""
     headlines = []
     descriptions = []
     lines = text.strip().split("\n")
@@ -166,6 +174,44 @@ def parse_variations(text):
     return headlines, descriptions
 
 # =============================================================================
+# CLICK TRACKING REDIRECT
+# =============================================================================
+
+def handle_track():
+    """Handle /track/{test_variation_id}?url={destination} redirects and log clicks."""
+    st.set_page_config(page_title="Redirecting...", page_icon="🔥")
+    import urllib.parse
+    
+    params = st.query_params
+    tv_id = params.get("tv", "")
+    destination = params.get("url", "")
+    
+    if tv_id and destination:
+        conn, cur = get_db(), None
+        if conn:
+            try:
+                cur = conn.cursor()
+                # Increment click count
+                cur.execute(
+                    "UPDATE test_variations SET clicks = clicks + 1 WHERE id = %s",
+                    (tv_id,)
+                )
+                # Log the click
+                cur.execute(
+                    "INSERT INTO clicks (id, test_variation_id, clicked_at, source) VALUES (%s, %s, %s, %s)",
+                    (str(uuid.uuid4()), tv_id, datetime.now().isoformat(), "direct")
+                )
+                conn.commit()
+            finally:
+                if cur:
+                    cur.close()
+                conn.close()
+        st.markdown(f'<meta http-equiv="refresh" content="0;url={destination}">', unsafe_allow_html=True)
+        st.markdown(f"[Click here if not redirected]({destination})")
+    else:
+        st.error("Missing tracking parameters")
+
+# =============================================================================
 # UI HELPERS
 # =============================================================================
 
@@ -181,16 +227,15 @@ def apply_dark_theme():
     }}
     .stButton > button:hover {{ background-color: #00cc6a; }}
     h1, h2, h3 {{ color: {ACCENT}; }}
-    .css-1d391kg {{ background-color: {SECONDARY_BG}; }}
     .stMetric {{ background-color: {SECONDARY_BG}; padding: 10px; border-radius: 8px; }}
     .stExpander {{ background-color: {SECONDARY_BG}; }}
     </style>
     """, unsafe_allow_html=True)
 
 def check_access(access_code):
-    if not APPROVED_CODES or APPROVED_CODES == [""]:
+    if not APPROVED_CODES:
         return True
-    return access_code in [c.strip() for c in APPROVED_CODES if c.strip()]
+    return access_code in APPROVED_CODES
 
 # =============================================================================
 # PAGES
@@ -228,15 +273,18 @@ def dashboard_page():
                 del st.session_state[key]
             st.rerun()
     
-    conn = init_db()
-    c = conn.cursor()
+    result = init_db()
+    if result[0] is None:
+        st.error("Database not ready. Refresh in a moment.")
+        return
+    conn, cur = result
     
-    c.execute("SELECT COUNT(*) FROM products WHERE user_id = ?", (user_id,))
-    total_products = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM clicks")
-    total_clicks = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM tests")
-    total_tests = c.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM products WHERE user_id = %s", (user_id,))
+    total_products = cur.fetchone()[0]
+    cur.execute("SELECT COALESCE(SUM(clicks), 0) FROM test_variations")
+    total_clicks = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM tests")
+    total_tests = cur.fetchone()[0]
     
     col1, col2, col3 = st.columns(3)
     col1.metric("Products", total_products)
@@ -245,8 +293,8 @@ def dashboard_page():
     st.divider()
     st.markdown("## Your Products")
     
-    c.execute("SELECT id, title, gumroad_url, created_at FROM products WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
-    products = c.fetchall()
+    cur.execute("SELECT id, title, gumroad_url, created_at FROM products WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
+    products = cur.fetchall()
     if not products:
         st.info("No products yet. Add one below!")
     else:
@@ -254,20 +302,20 @@ def dashboard_page():
             with st.expander(f"📦 {title}"):
                 st.write(f"**URL:** {url}")
                 st.write(f"**Added:** {created}")
-                c.execute("SELECT id, status, started_at FROM tests WHERE product_id = ?", (pid,))
-                tests = c.fetchall()
+                cur.execute("SELECT id, status, started_at FROM tests WHERE product_id = %s", (pid,))
+                tests = cur.fetchall()
                 if tests:
                     st.write("**Tests:**")
                     for tid, status, started in tests:
                         st.write(f"  - Test {tid[:8]}... | {status} | {started}")
                 else:
                     st.write("No tests yet")
-                cols = st.columns(2)
-                if cols[0].button("Open", key=f"open_{pid}"):
+                cols2 = st.columns([1, 1, 1])
+                if cols2[0].button("Open", key=f"open_{pid}"):
                     st.session_state["current_product"] = pid
                     st.rerun()
-                if cols[1].button("Delete", key=f"del_{pid}"):
-                    c.execute("DELETE FROM products WHERE id = ?", (pid,))
+                if cols2[1].button("Delete", key=f"del_{pid}"):
+                    cur.execute("DELETE FROM products WHERE id = %s", (pid,))
                     conn.commit()
                     st.rerun()
     
@@ -281,15 +329,17 @@ def dashboard_page():
         if submitted:
             if title and gumroad_url:
                 pid = str(uuid.uuid4())
-                c.execute("""
-                    INSERT INTO products (id, user_id, title, description, gumroad_url, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (pid, user_id, title, description, gumroad_url, datetime.now().isoformat()))
+                cur.execute(
+                    "INSERT INTO products (id, user_id, title, description, gumroad_url, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (pid, user_id, title, description, gumroad_url, datetime.now().isoformat())
+                )
                 conn.commit()
                 st.success("Product added!")
                 st.rerun()
             else:
                 st.error("Title and URL required")
+    cur.close()
+    conn.close()
 
 def product_page(product_id):
     st.set_page_config(page_title="SplitFire — Product", page_icon="🔥")
@@ -298,12 +348,18 @@ def product_page(product_id):
         del st.session_state["current_product"]
         st.rerun()
     
-    conn = init_db()
-    c = conn.cursor()
-    c.execute("SELECT title, description, gumroad_url FROM products WHERE id = ?", (product_id,))
-    product = c.fetchone()
+    result = init_db()
+    if result[0] is None:
+        st.error("Database not ready.")
+        return
+    conn, cur = result
+    
+    cur.execute("SELECT title, description, gumroad_url FROM products WHERE id = %s", (product_id,))
+    product = cur.fetchone()
     if not product:
         st.error("Product not found")
+        cur.close()
+        conn.close()
         return
     
     title, description, gumroad_url = product
@@ -311,14 +367,12 @@ def product_page(product_id):
     st.write(f"**URL:** {gumroad_url}")
     st.divider()
     st.markdown("### Generate AI Variations")
-    if "variations" not in st.session_state:
-        st.session_state["variations"] = None
     
     if st.button("🎯 Generate with AI"):
         if not GROQ_API_KEY:
             st.error("Groq API not configured")
         else:
-            with st.spinner("Generating..."):
+            with st.spinner("Generating variations..."):
                 raw, err = generate_variations(title, description)
                 if err:
                     st.error(f"Error: {err}")
@@ -328,7 +382,7 @@ def product_page(product_id):
                     st.success("Done!")
                     st.rerun()
     
-    if st.session_state["variations"]:
+    if st.session_state.get("variations"):
         data = st.session_state["variations"]
         col1, col2 = st.columns(2)
         with col1:
@@ -346,50 +400,86 @@ def product_page(product_id):
         if st.button("🚀 Create Test"):
             h_var_id = str(uuid.uuid4())
             d_var_id = str(uuid.uuid4())
-            c.execute("INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (?, ?, ?, ?, ?)",
-                     (h_var_id, product_id, selected_headline if selected_headline != "None" else "", "", "headline"))
-            c.execute("INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (?, ?, ?, ?, ?)",
-                     (d_var_id, product_id, "", selected_desc if selected_desc != "None" else "", "description"))
+            # Get base URL for tracking links
+            base_url = gumroad_url
+            # Create headline variation
+            headline_val = selected_headline if selected_headline != "None" else ""
+            cur.execute(
+                "INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (%s, %s, %s, %s, %s)",
+                (h_var_id, product_id, headline_val, "", "headline")
+            )
+            # Create description variation
+            desc_val = selected_desc if selected_desc != "None" else ""
+            cur.execute(
+                "INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (%s, %s, %s, %s, %s)",
+                (d_var_id, product_id, "", desc_val, "description")
+            )
+            # Create test
             test_id = str(uuid.uuid4())
-            c.execute("INSERT INTO tests (id, product_id, started_at) VALUES (?, ?, ?)",
-                     (test_id, product_id, datetime.now().isoformat()))
+            cur.execute(
+                "INSERT INTO tests (id, product_id, status, started_at) VALUES (%s, %s, %s, %s)",
+                (test_id, product_id, "active", datetime.now().isoformat())
+            )
+            # Create tracking links with click tracking endpoint
             tv1_id = str(uuid.uuid4())
             tv2_id = str(uuid.uuid4())
-            link1 = f"{gumroad_url}?utm_source=splitfire&utm_content={h_var_id[:8]}"
-            link2 = f"{gumroad_url}?utm_source=splitfire&utm_content={d_var_id[:8]}"
-            c.execute("INSERT INTO test_variations (id, test_id, variation_id, tracking_link) VALUES (?, ?, ?, ?)",
-                     (tv1_id, test_id, h_var_id, link1))
-            c.execute("INSERT INTO test_variations (id, test_id, variation_id, tracking_link) VALUES (?, ?, ?, ?)",
-                     (tv2_id, test_id, d_var_id, link2))
+            # Use the app's track endpoint
+            track_base = "https://splitfiretools.cc/track"
+            link1 = f"{track_base}?tv={tv1_id}&url={gumroad_url}&utm_source=splitfire&utm_content={h_var_id[:8]}"
+            link2 = f"{track_base}?tv={tv2_id}&url={gumroad_url}&utm_source=splitfire&utm_content={d_var_id[:8]}"
+            cur.execute(
+                "INSERT INTO test_variations (id, test_id, variation_id, tracking_link, clicks) VALUES (%s, %s, %s, %s, %s)",
+                (tv1_id, test_id, h_var_id, link1, 0)
+            )
+            cur.execute(
+                "INSERT INTO test_variations (id, test_id, variation_id, tracking_link, clicks) VALUES (%s, %s, %s, %s, %s)",
+                (tv2_id, test_id, d_var_id, link2, 0)
+            )
             conn.commit()
             st.success("Test created!")
-            st.code(link1)
-            st.code(link2)
+            st.markdown(f"**Link A:** `{link1}`")
+            st.markdown(f"**Link B:** `{link2}`")
+            st.info("Share these links. Each click is tracked and counted in real time.")
             st.rerun()
     
     st.divider()
     st.markdown("### Tests")
-    c.execute("SELECT id, status, started_at FROM tests WHERE product_id = ?", (product_id,))
-    tests = c.fetchall()
+    cur.execute("SELECT id, status, started_at FROM tests WHERE product_id = %s", (product_id,))
+    tests = cur.fetchall()
     if not tests:
         st.info("Generate variations above to create a test.")
     else:
         for tid, status, started in tests:
-            with st.expander(f"Test {tid[:8]}... | {status}"):
-                c.execute("""
+            with st.expander(f"Test {tid[:8]}... | {status} | Started: {started}"):
+                cur.execute("""
                     SELECT tv.id, v.headline, v.description, v.variant_type, tv.tracking_link, tv.clicks
-                    FROM test_variations tv JOIN variations v ON tv.variation_id = v.id
-                    WHERE tv.test_id = ?
+                    FROM test_variations tv
+                    JOIN variations v ON tv.variation_id = v.id
+                    WHERE tv.test_id = %s
                 """, (tid,))
-                for tvid, headline, desc, vtype, link, clicks in c.fetchall():
+                variations = cur.fetchall()
+                for tvid, headline, desc, vtype, link, clicks in variations:
                     st.write(f"**Type:** {vtype}")
                     if headline: st.write(f"**Headline:** {headline}")
                     if desc: st.write(f"**Description:** {desc}")
                     st.write(f"**Clicks:** {clicks}")
+                    st.code(link[:80] + "..." if len(link) > 80 else link)
                     st.divider()
+    cur.close()
+    conn.close()
 
 def main():
-    init_db()
+    # Check for tracking redirect
+    if st.query_params.get("tv"):
+        handle_track()
+        return
+    
+    init_db_result = init_db()
+    if init_db_result[0] is None:
+        st.set_page_config(page_title="SplitFire — Error", page_icon="🔥")
+        st.error("Database not ready. Please refresh in a moment.")
+        return
+    
     if "user_id" not in st.session_state:
         login_page()
         return
