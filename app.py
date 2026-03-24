@@ -347,9 +347,9 @@ def product_page(product_id):
             h_var_id = str(uuid.uuid4())
             d_var_id = str(uuid.uuid4())
             c.execute("INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (?, ?, ?, ?, ?)",
-                     (h_var_id, product_id, selected_headline if selected_headline != "None" else "", "headline"))
+                     (h_var_id, product_id, selected_headline if selected_headline != "None" else "", "", "headline"))
             c.execute("INSERT INTO variations (id, product_id, headline, description, variant_type) VALUES (?, ?, ?, ?, ?)",
-                     (d_var_id, product_id, selected_desc if selected_desc != "None" else "", selected_desc if selected_desc != "None" else "", "description"))
+                     (d_var_id, product_id, "", selected_desc if selected_desc != "None" else "", "description"))
             test_id = str(uuid.uuid4())
             c.execute("INSERT INTO tests (id, product_id, started_at) VALUES (?, ?, ?)",
                      (test_id, product_id, datetime.now().isoformat()))
